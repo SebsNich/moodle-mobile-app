@@ -16,7 +16,11 @@ import {
   Platform,
   StatusBar,
 } from "react-native";
-import { getForumDiscussions, postForumReply } from "../services/moodleApi";
+import {
+  getForumDiscussions,
+  postForumReply,
+  getDiscussionPosts,
+} from "../services/moodleApi";
 import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
 import { spacing } from "../theme/spacing";
@@ -30,29 +34,38 @@ export default function ForumScreen({ route, navigation }) {
   const [discussions, setDiscussions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
+
   // Estados para responder a una discusión
   const [activeDiscussionId, setActiveDiscussionId] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [submittingReply, setSubmittingReply] = useState(false);
+  const [expandedDiscussionId, setExpandedDiscussionId] = useState(null);
+  const [posts, setPosts] = useState([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
-  const loadDiscussions = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      if (actualForumId) {
-        const data = await getForumDiscussions(token, actualForumId);
-        setDiscussions(data || []);
-      } else {
-        console.warn("No se encontró el ID de instancia del foro.");
+  const loadDiscussions = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        if (actualForumId) {
+          const data = await getForumDiscussions(token, actualForumId);
+          setDiscussions(data || []);
+        } else {
+          console.warn("No se encontró el ID de instancia del foro.");
+        }
+      } catch (err) {
+        console.error("Error al cargar discusiones:", err);
+        Alert.alert(
+          "Error",
+          "No se pudieron obtener las discusiones del foro."
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch (err) {
-      console.error("Error al cargar discusiones:", err);
-      Alert.alert("Error", "No se pudieron obtener las discusiones del foro.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [token, actualForumId]);
+    },
+    [token, actualForumId]
+  );
 
   useEffect(() => {
     loadDiscussions();
@@ -62,10 +75,35 @@ export default function ForumScreen({ route, navigation }) {
     setRefreshing(true);
     loadDiscussions(true);
   };
+  const handleTogglePosts = async (discussion) => {
+    if (expandedDiscussionId === discussion.id) {
+      setExpandedDiscussionId(null);
+      setPosts([]);
+      return;
+    }
+
+    setExpandedDiscussionId(discussion.id);
+    setLoadingPosts(true);
+    try {
+      const data = await getDiscussionPosts(token, discussion.id);
+      setPosts(data || []);
+    } catch (err) {
+      console.error("Error al cargar mensajes:", err);
+      Alert.alert(
+        "Error",
+        "No se pudieron cargar los mensajes de esta discusión."
+      );
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
 
   const handlePostReply = async (discussion) => {
     if (!replyText.trim()) {
-      Alert.alert("Respuesta vacía", "Por favor ingresa un mensaje antes de responder.");
+      Alert.alert(
+        "Respuesta vacía",
+        "Por favor ingresa un mensaje antes de responder."
+      );
       return;
     }
 
@@ -87,7 +125,10 @@ export default function ForumScreen({ route, navigation }) {
       }
     } catch (err) {
       console.error("Error al enviar respuesta al foro:", err);
-      Alert.alert("Error de Envío", err.message || "Ocurrió un error al enviar tu aporte.");
+      Alert.alert(
+        "Error de Envío",
+        err.message || "Ocurrió un error al enviar tu aporte."
+      );
     } finally {
       setSubmittingReply(false);
     }
@@ -102,7 +143,8 @@ export default function ForumScreen({ route, navigation }) {
         <View style={styles.discussionHeader}>
           <Text style={styles.discussionSubject}>{item.subject}</Text>
           <Text style={styles.discussionMeta}>
-            Por 👤 <Text style={styles.authorText}>{item.author}</Text> — 📅 {item.date}
+            Por 👤 <Text style={styles.authorText}>{item.author}</Text> — 📅{" "}
+            {item.date}
           </Text>
         </View>
 
@@ -111,7 +153,7 @@ export default function ForumScreen({ route, navigation }) {
           <Text style={styles.repliesText}>
             💬 {item.replies} {item.replies === 1 ? "respuesta" : "respuestas"}
           </Text>
-          
+
           <TouchableOpacity
             style={styles.replyToggleButton}
             onPress={() => {
@@ -143,7 +185,10 @@ export default function ForumScreen({ route, navigation }) {
               editable={!submittingReply}
             />
             <TouchableOpacity
-              style={[styles.sendReplyButton, !replyText.trim() && styles.disabledButton]}
+              style={[
+                styles.sendReplyButton,
+                !replyText.trim() && styles.disabledButton,
+              ]}
               onPress={() => handlePostReply(item)}
               disabled={submittingReply || !replyText.trim()}
             >
@@ -153,6 +198,37 @@ export default function ForumScreen({ route, navigation }) {
                 <Text style={styles.sendReplyButtonText}>Publicar Aporte</Text>
               )}
             </TouchableOpacity>
+          </View>
+        )}
+        {/* Botón y lista para leer mensajes de otros usuarios */}
+        <TouchableOpacity
+          style={styles.replyToggleButton}
+          onPress={() => handleTogglePosts(item)}
+        >
+          <Text style={styles.replyToggleText}>
+            {expandedDiscussionId === item.id
+              ? "Ocultar mensajes"
+              : "Ver mensajes"}
+          </Text>
+        </TouchableOpacity>
+
+        {expandedDiscussionId === item.id && (
+          <View style={styles.postsContainer}>
+            {loadingPosts ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : posts.length === 0 ? (
+              <Text style={styles.noPostsText}>
+                No hay mensajes para mostrar en esta discusión.
+              </Text>
+            ) : (
+              posts.map((post) => (
+                <View key={post.id} style={styles.postItem}>
+                  <Text style={styles.postAuthor}>{post.author}</Text>
+                  <Text style={styles.postMessage}>{post.message}</Text>
+                  <Text style={styles.postDate}>{post.date}</Text>
+                </View>
+              ))
+            )}
           </View>
         )}
       </View>
@@ -182,7 +258,8 @@ export default function ForumScreen({ route, navigation }) {
         <View style={styles.infoBox}>
           <Text style={styles.courseName}>{course?.fullname}</Text>
           <Text style={styles.forumDescription}>
-            {activity?.description || "Espacio de debate y consultas sobre los temas del curso."}
+            {activity?.description ||
+              "Espacio de debate y consultas sobre los temas del curso."}
           </Text>
         </View>
 
@@ -383,5 +460,37 @@ const styles = StyleSheet.create({
     ...typography.body2,
     color: colors.textLight,
     textAlign: "center",
+  },
+
+  postsContainer: {
+    marginTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+    paddingTop: spacing.sm,
+  },
+  postItem: {
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  postAuthor: {
+    ...typography.label,
+    color: colors.textPrimary,
+    fontWeight: "700",
+  },
+  postMessage: {
+    ...typography.body2,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  postDate: {
+    ...typography.caption,
+    color: colors.textLight,
+    marginTop: 2,
+  },
+  noPostsText: {
+    ...typography.body2,
+    color: colors.textLight,
+    fontStyle: "italic",
   },
 });

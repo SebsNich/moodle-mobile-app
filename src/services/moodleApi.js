@@ -21,7 +21,7 @@ const getHostFromUrl = (url) => {
 
 // Cabecera Host requerida por Nginx para evitar error 404 al llamar por IP o túneles
 const HEADERS = {
-  "Host": getHostFromUrl(MOODLE_URL)
+  Host: getHostFromUrl(MOODLE_URL),
 };
 
 // AUTENTICACIÓN
@@ -32,21 +32,24 @@ export const loginWithGoogle = async (googleToken) => {
   }
 
   try {
-    const url = `${WEBSERVICE_URL}?wstoken=${ADMIN_TOKEN}&wsfunction=core_user_get_users_by_field&moodlewsrestformat=json&field=email&values[0]=${encodeURIComponent(email)}`;
+    const url = `${WEBSERVICE_URL}?wstoken=${ADMIN_TOKEN}&wsfunction=core_user_get_users_by_field&moodlewsrestformat=json&field=email&values[0]=${encodeURIComponent(
+      email
+    )}`;
     const response = await fetch(url, { headers: HEADERS });
     const users = await response.json();
 
     if (users && users.length > 0) {
       const moodleUser = users[0];
       currentUserId = moodleUser.id;
-      
+
       return {
         token: ADMIN_TOKEN,
         user: {
           id: moodleUser.id,
           fullname: moodleUser.fullname,
           email: moodleUser.email,
-          profileimage: moodleUser.profileimageurl || "https://i.pravatar.cc/150?img=1",
+          profileimage:
+            moodleUser.profileimageurl || "https://i.pravatar.cc/150?img=1",
         },
       };
     } else {
@@ -82,10 +85,13 @@ export const getCourses = async (token) => {
         id: course.id,
         fullname: course.fullname,
         shortname: course.shortname,
-        summary: course.summary ? course.summary.replace(/<[^>]*>/g, "").trim() : "Sin descripción",
-        teacher: course.contacts && course.contacts.length > 0 
-          ? course.contacts.map(c => c.fullname).join(", ") 
-          : "Docente por confirmar",
+        summary: course.summary
+          ? course.summary.replace(/<[^>]*>/g, "").trim()
+          : "Sin descripción",
+        teacher:
+          course.contacts && course.contacts.length > 0
+            ? course.contacts.map((c) => c.fullname).join(", ")
+            : "Docente por confirmar",
         image: imageUrl,
       };
     });
@@ -119,7 +125,10 @@ export const getCourseActivities = async (token, courseId) => {
         });
       }
     } catch (e) {
-      console.warn("No se pudieron obtener las fechas de entrega detalladas:", e);
+      console.warn(
+        "No se pudieron obtener las fechas de entrega detalladas:",
+        e
+      );
     }
 
     let activities = [];
@@ -150,7 +159,9 @@ export const getCourseActivities = async (token, courseId) => {
                 type: mod.modname,
                 duedate: duedate,
                 status: mod.modname === "assign" ? "pending" : "open",
-                description: description.replace(/<[^>]*>/g, "").trim() || "Sin descripción disponible",
+                description:
+                  description.replace(/<[^>]*>/g, "").trim() ||
+                  "Sin descripción disponible",
               });
             }
           });
@@ -180,7 +191,7 @@ export const submitAssignment = async (token, assignmentId, text) => {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        ...HEADERS
+        ...HEADERS,
       },
       body: params.toString(),
     });
@@ -242,7 +253,7 @@ export const postForumReply = async (token, postId, message) => {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        ...HEADERS
+        ...HEADERS,
       },
       body: params.toString(),
     });
@@ -254,6 +265,33 @@ export const postForumReply = async (token, postId, message) => {
     return { status: "success", result };
   } catch (error) {
     console.error("Error en postForumReply:", error);
+    throw error;
+  }
+};
+
+export const getDiscussionPosts = async (token, discussionId) => {
+  try {
+    const url = `${WEBSERVICE_URL}?wstoken=${token}&wsfunction=mod_forum_get_forum_discussion_posts&moodlewsrestformat=json&discussionid=${discussionId}`;
+    const response = await fetch(url, { headers: HEADERS });
+    const result = await response.json();
+
+    if (result.exception) {
+      throw new Error(result.message);
+    }
+
+    const posts = result.posts || [];
+
+    return posts.map((p) => {
+      const dateObj = new Date(p.timecreated * 1000);
+      return {
+        id: p.id,
+        author: p.author?.fullname || "Usuario",
+        message: p.message ? p.message.replace(/<[^>]*>/g, "").trim() : "",
+        date: dateObj.toISOString().split("T")[0],
+      };
+    });
+  } catch (error) {
+    console.error("Error en getDiscussionPosts:", error);
     throw error;
   }
 };
