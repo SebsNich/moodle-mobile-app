@@ -12,6 +12,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   SafeAreaView,
+  Platform,
+  StatusBar,
 } from "react-native";
 import { getCourses } from "../services/moodleApi";
 import { colors } from "../theme/colors";
@@ -145,6 +147,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
   },
   centered: {
     flex: 1,

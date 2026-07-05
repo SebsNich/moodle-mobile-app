@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Platform,
 } from "react-native";
 
 import { getCourseActivities, getCourses } from "../services/moodleApi";
@@ -325,6 +326,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#F8FAFC",
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
   },
   content: {
     padding: 20,
