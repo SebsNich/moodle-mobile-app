@@ -9,12 +9,19 @@ let currentUserId = null;
 const ADMIN_TOKEN = "72e87e8fcee65873b7c03cd16fd76d9f";
 
 // URL base del servidor Moodle
-const MOODLE_URL = "http://192.168.100.196:8080/moodle";
+// Para pruebas remotas con tus compañeros, reemplaza esta URL por tu dirección de Ngrok (ej: https://xxxx.ngrok-free.app)
+const MOODLE_URL = "https://gesture-chatty-macaroni.ngrok-free.dev/moodle";
 const WEBSERVICE_URL = `${MOODLE_URL}/webservice/rest/server.php`;
 
-// Cabecera Host requerida por Nginx para evitar error 404 al llamar por IP
+// Extraer el host automáticamente para la cabecera Host de Nginx
+const getHostFromUrl = (url) => {
+  const match = url.match(/https?:\/\/([^\/]+)/);
+  return match ? match[1] : "mobileappdam.com:8080";
+};
+
+// Cabecera Host requerida por Nginx para evitar error 404 al llamar por IP o túneles
 const HEADERS = {
-  "Host": "mobileappdam.com:8080"
+  "Host": getHostFromUrl(MOODLE_URL)
 };
 
 // AUTENTICACIÓN

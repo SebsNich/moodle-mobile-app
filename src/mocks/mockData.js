@@ -89,5 +89,5 @@ export const MOCK_FORUM_DISCUSSIONS = [
 ];
 
 export const MOCK_TOKEN = "mock-token-123456789";
-export const MOCK_MOODLE_URL = "http://192.168.100.196:8080/moodle";
+export const MOCK_MOODLE_URL = "https://gesture-chatty-macaroni.ngrok-free.dev/moodle";
 //STEVEN: reemplazar MOCK_MOODLE_URL con la IP real del servidor
