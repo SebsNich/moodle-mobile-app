@@ -74,11 +74,7 @@ La aplicación tiene dos formas de validar usuarios:
    Puedes escribir manualmente cualquier correo registrado en tu base de datos de Moodle (como `john.quijijetov@ug.edu.ec` o cuentas de estudiantes) en la casilla de texto de la pantalla de login de la app. Al pulsar el botón, la app simulará que iniciaste sesión con esa cuenta de Google sin tener que loguearte realmente.
 
 2. **Login de Google Real:**
-   Si pulsas el botón con la casilla vacía, abrirá la ventana de autenticación real de Google.
-   * **IMPORTANTE (Diferencia de Correos):** Tu cuenta institucional de Google tiene el correo con **tres "i"** (`john.quijijijetov@ug.edu.ec`), pero en tu Moodle local está registrado por error con **dos "i"** (`john.quijijetov@ug.edu.ec`).
-   * Para poder usar el login de Google real, entra a **phpMyAdmin** en tu máquina virtual, ve a la tabla `mdl_user` y edita el correo de tu usuario administrador para que tenga las tres "i" (`john.quijijijetov@ug.edu.ec`). De esta forma coincidirá con lo que entrega Google.
-
----
+   Si dejas la casilla de texto vacía y presionas el botón, la app abrirá el navegador seguro de Google para que inicies sesión con tu cuenta institucional de la UG. Al autenticarte con éxito, Google entregará tu correo institucional y la app buscará ese correo exacto en tu base de datos de Moodle para iniciar la sesión.
 
 ## 🛠️ Estructura del Proyecto
 
