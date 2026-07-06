@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
+  Image,
 } from "react-native";
 import {
   getForumDiscussions,
@@ -42,6 +43,32 @@ export default function ForumScreen({ route, navigation }) {
   const [expandedDiscussionId, setExpandedDiscussionId] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
+
+  const formatDate = (date) => {
+    if (!date) return "Sin fecha límite";
+    try {
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return date;
+      
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      
+      const hours = String(d.getHours()).padStart(2, "0");
+      const minutes = String(d.getMinutes()).padStart(2, "0");
+      
+      return `${day}/${month}/${year} a las ${hours}:${minutes}`;
+    } catch (e) {
+      return date;
+    }
+  };
+
+  const isOverdue = useCallback(() => {
+    if (!activity?.duedate) return false;
+    const now = new Date();
+    const dueTime = new Date(activity.duedate);
+    return now > dueTime;
+  }, [activity]);
 
   const loadDiscussions = useCallback(
     async (silent = false) => {
@@ -120,6 +147,17 @@ export default function ForumScreen({ route, navigation }) {
         setActiveDiscussionId(null);
         // Recargar discusiones para ver el número actualizado de respuestas
         loadDiscussions(true);
+
+        // Recargar los posts del hilo expandido para mostrar el nuevo aporte inmediatamente
+        setLoadingPosts(true);
+        try {
+          const data = await getDiscussionPosts(token, discussion.id);
+          setPosts(data || []);
+        } catch (err) {
+          console.error("Error al recargar mensajes:", err);
+        } finally {
+          setLoadingPosts(false);
+        }
       } else {
         Alert.alert("Error", "No se pudo publicar tu respuesta.");
       }
@@ -134,45 +172,110 @@ export default function ForumScreen({ route, navigation }) {
     }
   };
 
+  const getInitials = (name) => {
+    if (!name) return "?";
+    const parts = name.split(" ");
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name[0].toUpperCase();
+  };
+
+  const getAvatarColor = (name) => {
+    if (!name) return colors.primary;
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colorsList = ["#1a73e8", "#34a853", "#673ab7", "#e91e63", "#009688", "#ff5722", "#3f51b5", "#00bcd4"];
+    return colorsList[Math.abs(hash) % colorsList.length];
+  };
+
+  const isTeacher = (name) => {
+    if (!name) return false;
+    const lower = name.toLowerCase();
+    return lower.includes("alvarez") || lower.includes("solis") || lower.includes("profesor") || lower.includes("docente") || lower.includes("francisco");
+  };
+
+  const getAvatarSource = (url, token) => {
+    if (!url) return null;
+    if (url.includes("pluginfile.php")) {
+      const separator = url.includes("?") ? "&" : "?";
+      return { uri: `${url}${separator}token=${token}` };
+    }
+    return { uri: url };
+  };
+
   const renderDiscussionItem = ({ item }) => {
     const isReplyingThis = activeDiscussionId === item.id;
+    const isExpanded = expandedDiscussionId === item.id;
+    const avatarSource = getAvatarSource(item.userpictureurl, token);
 
     return (
       <View style={styles.discussionCard}>
         {/* Encabezado del Hilo */}
         <View style={styles.discussionHeader}>
           <Text style={styles.discussionSubject}>{item.subject}</Text>
-          <Text style={styles.discussionMeta}>
-            Por 👤 <Text style={styles.authorText}>{item.author}</Text> — 📅{" "}
-            {item.date}
-          </Text>
+          <View style={styles.discussionMetaRow}>
+            {avatarSource ? (
+              <Image source={avatarSource} style={styles.miniAvatarImage} />
+            ) : null}
+            <View style={styles.metaTextContainer}>
+              <Text style={styles.authorText}>
+                {item.author} {isTeacher(item.author) && <Text style={styles.teacherBadge}>Docente</Text>}
+              </Text>
+              <Text style={styles.dateText}>Publicado el {formatDate(item.date)}</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Contador de respuestas */}
+        {/* Mensaje principal del docente/creador del hilo (Siempre al principio) */}
+        {item.message ? (
+          <View style={styles.mainMessageContainer}>
+            <Text style={styles.mainMessageText}>{item.message}</Text>
+          </View>
+        ) : null}
+
+        {/* Contador de respuestas e Hilo de acciones */}
         <View style={styles.repliesRow}>
-          <Text style={styles.repliesText}>
-            💬 {item.replies} {item.replies === 1 ? "respuesta" : "respuestas"}
-          </Text>
-
-          <TouchableOpacity
-            style={styles.replyToggleButton}
-            onPress={() => {
-              if (isReplyingThis) {
-                setActiveDiscussionId(null);
-                setReplyText("");
-              } else {
-                setActiveDiscussionId(item.id);
-                setReplyText("");
-              }
-            }}
-          >
-            <Text style={styles.replyToggleText}>
-              {isReplyingThis ? "Cancelar" : "Responder"}
+          <View style={styles.repliesBadge}>
+            <Text style={styles.repliesText}>
+              💬 {item.replies} {item.replies === 1 ? "respuesta" : "respuestas"}
             </Text>
-          </TouchableOpacity>
+          </View>
+
+          <View style={styles.actionButtonsRow}>
+            <TouchableOpacity
+              style={[styles.actionIconButton, isExpanded && styles.activeIconButton]}
+              onPress={() => handleTogglePosts(item)}
+            >
+              <Text style={[styles.actionIconText, isExpanded && styles.activeIconText]}>
+                {isExpanded ? "Ocultar" : "Ver respuestas"}
+              </Text>
+            </TouchableOpacity>
+
+            {!isOverdue() && (
+              <TouchableOpacity
+                style={[styles.actionIconButton, isReplyingThis && styles.activeReplyButton]}
+                onPress={() => {
+                  if (isReplyingThis) {
+                    setActiveDiscussionId(null);
+                    setReplyText("");
+                  } else {
+                    setActiveDiscussionId(item.id);
+                    setReplyText("");
+                  }
+                }}
+              >
+                <Text style={[styles.actionIconText, isReplyingThis && styles.activeReplyText]}>
+                  {isReplyingThis ? "Cancelar" : "Responder"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
-        {/* Input de respuesta expandible */}
+        {/* Formulario para escribir aporte */}
         {isReplyingThis && (
           <View style={styles.replyForm}>
             <TextInput
@@ -200,34 +303,40 @@ export default function ForumScreen({ route, navigation }) {
             </TouchableOpacity>
           </View>
         )}
-        {/* Botón y lista para leer mensajes de otros usuarios */}
-        <TouchableOpacity
-          style={styles.replyToggleButton}
-          onPress={() => handleTogglePosts(item)}
-        >
-          <Text style={styles.replyToggleText}>
-            {expandedDiscussionId === item.id
-              ? "Ocultar mensajes"
-              : "Ver mensajes"}
-          </Text>
-        </TouchableOpacity>
 
-        {expandedDiscussionId === item.id && (
+        {/* Respuestas reales (excluyendo el post principal) */}
+        {isExpanded && (
           <View style={styles.postsContainer}>
+            <Text style={styles.postsSectionTitle}>Respuestas del debate:</Text>
             {loadingPosts ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : posts.length === 0 ? (
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />
+            ) : posts.filter(p => p.hasparent).length === 0 ? (
               <Text style={styles.noPostsText}>
-                No hay mensajes para mostrar en esta discusión.
+                No hay respuestas en este tema todavía.
               </Text>
             ) : (
-              posts.map((post) => (
-                <View key={post.id} style={styles.postItem}>
-                  <Text style={styles.postAuthor}>{post.author}</Text>
-                  <Text style={styles.postMessage}>{post.message}</Text>
-                  <Text style={styles.postDate}>{post.date}</Text>
-                </View>
-              ))
+              posts
+                .filter(p => p.hasparent)
+                .map((post) => {
+                  const isPostTeacher = isTeacher(post.author);
+                  const postAvatarSource = getAvatarSource(post.avatar, token);
+                  return (
+                    <View key={post.id} style={[styles.postItemCard, isPostTeacher && styles.postItemTeacherCard]}>
+                      <View style={styles.postItemHeader}>
+                        {postAvatarSource ? (
+                          <Image source={postAvatarSource} style={[styles.miniAvatarImage, { width: 28, height: 28, borderRadius: 14, marginRight: 8 }]} />
+                        ) : null}
+                        <View style={styles.postItemMeta}>
+                          <Text style={styles.postAuthorName}>
+                            {post.author} {isPostTeacher && <Text style={styles.teacherBadgeMini}>Docente</Text>}
+                          </Text>
+                          <Text style={styles.postItemDate}>Publicado el {formatDate(post.date)}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.postItemMessage}>{post.message}</Text>
+                    </View>
+                  );
+                })
             )}
           </View>
         )}
@@ -261,6 +370,13 @@ export default function ForumScreen({ route, navigation }) {
             {activity?.description ||
               "Espacio de debate y consultas sobre los temas del curso."}
           </Text>
+          {activity?.duedate && (
+            <Text style={[styles.dueDateBadge, isOverdue() && styles.dueDateBadgeOverdue]}>
+              {isOverdue() 
+                ? `🔴 Cerrado: Venció el ${formatDate(activity.duedate)}` 
+                : `🟢 Disponible hasta: ${formatDate(activity.duedate)}`}
+            </Text>
+          )}
         </View>
 
         {/* Lista de discusiones */}
@@ -307,21 +423,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     backgroundColor: colors.white,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   backButton: {
-    backgroundColor: colors.border,
-    paddingVertical: spacing.xs + 2,
-    paddingHorizontal: spacing.md,
-    borderRadius: spacing.borderRadius.md,
+    alignItems: "center",
+    backgroundColor: "#E2E8F0",
+    borderRadius: 8,
+    minHeight: 40,
+    justifyContent: "center",
+    paddingHorizontal: 14,
   },
   backButtonText: {
-    color: colors.textPrimary,
-    fontWeight: "700",
+    color: "#0F172A",
     fontSize: 14,
+    fontWeight: "700",
   },
   headerTitle: {
     ...typography.h3,
@@ -382,9 +500,77 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textLight,
   },
+  discussionMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: spacing.sm,
+  },
+  miniAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: spacing.sm,
+  },
+  miniAvatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: spacing.sm,
+    backgroundColor: colors.border,
+  },
+  mainMessageContainer: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingLeft: spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: "#CBD5E1",
+  },
+  mainMessageText: {
+    fontSize: 14,
+    color: "#334155",
+    lineHeight: 20,
+  },
+  miniAvatarText: {
+    color: colors.textWhite,
+    fontWeight: "bold",
+    fontSize: 13,
+  },
+  metaTextContainer: {
+    flex: 1,
+  },
   authorText: {
-    color: colors.textSecondary,
-    fontWeight: "600",
+    color: colors.textPrimary,
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  dateText: {
+    color: colors.textLight,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  teacherBadge: {
+    backgroundColor: "#D1FAE5",
+    color: "#065F46",
+    fontSize: 10,
+    fontWeight: "bold",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginLeft: 6,
+    overflow: "hidden",
+  },
+  teacherBadgeMini: {
+    backgroundColor: "#D1FAE5",
+    color: "#065F46",
+    fontSize: 9,
+    fontWeight: "bold",
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    marginLeft: 4,
+    overflow: "hidden",
   },
   repliesRow: {
     flexDirection: "row",
@@ -392,24 +578,50 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderTopWidth: 1,
     borderTopColor: colors.divider,
-    paddingTop: spacing.sm,
-    marginTop: spacing.xs,
+    paddingTop: spacing.md,
+    marginTop: spacing.sm,
+  },
+  repliesBadge: {
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   repliesText: {
-    ...typography.body2,
-    color: colors.textSecondary,
-    fontWeight: "500",
+    fontSize: 12,
+    color: "#475569",
+    fontWeight: "600",
   },
-  replyToggleButton: {
-    paddingVertical: 4,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: colors.divider,
-    borderRadius: spacing.borderRadius.sm,
+  actionButtonsRow: {
+    flexDirection: "row",
+    gap: 8,
   },
-  replyToggleText: {
-    color: colors.primary,
+  actionIconButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  actionIconText: {
+    color: "#475569",
+    fontSize: 12,
     fontWeight: "700",
-    fontSize: 13,
+  },
+  activeIconButton: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#BFDBFE",
+  },
+  activeIconText: {
+    color: "#1D4ED8",
+  },
+  activeReplyButton: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FCA5A5",
+  },
+  activeReplyText: {
+    color: "#DC2626",
   },
   replyForm: {
     marginTop: spacing.md,
@@ -422,7 +634,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: spacing.borderRadius.md,
-    padding: spacing.sm,
+    padding: spacing.md,
     minHeight: 80,
     textAlignVertical: "top",
     fontSize: 15,
@@ -461,36 +673,77 @@ const styles = StyleSheet.create({
     color: colors.textLight,
     textAlign: "center",
   },
-
   postsContainer: {
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.divider,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.md,
   },
-  postItem: {
-    paddingVertical: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
+  postsSectionTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#64748B",
+    textTransform: "uppercase",
+    marginBottom: 10,
   },
-  postAuthor: {
-    ...typography.label,
-    color: colors.textPrimary,
+  postItemCard: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  postItemTeacherCard: {
+    backgroundColor: "#F0FDF4",
+    borderColor: "#DCFCE7",
+  },
+  postItemHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  postItemMeta: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  postAuthorName: {
+    fontSize: 13,
     fontWeight: "700",
+    color: "#334155",
   },
-  postMessage: {
-    ...typography.body2,
-    color: colors.textSecondary,
-    marginTop: 2,
+  postItemDate: {
+    fontSize: 10,
+    color: "#94A3B8",
+    marginTop: 1,
   },
-  postDate: {
-    ...typography.caption,
-    color: colors.textLight,
-    marginTop: 2,
+  postItemMessage: {
+    fontSize: 14,
+    color: "#475569",
+    lineHeight: 20,
+    paddingLeft: 2,
   },
   noPostsText: {
     ...typography.body2,
     color: colors.textLight,
     fontStyle: "italic",
+    textAlign: "center",
+    paddingVertical: 12,
+  },
+  dueDateBadge: {
+    alignSelf: "flex-start",
+    marginTop: spacing.sm,
+    fontSize: 12,
+    fontWeight: "bold",
+    backgroundColor: "#ECFDF5",
+    color: "#047857",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  dueDateBadgeOverdue: {
+    backgroundColor: "#FEF2F2",
+    color: "#DC2626",
   },
 });

@@ -25,6 +25,7 @@ const STATUS_LABELS = {
   open: "Abierto",
   submitted: "Entregado",
   closed: "Cerrado",
+  overdue: "Atrasado",
 };
 
 const STATUS_STYLES = {
@@ -44,20 +45,31 @@ const STATUS_STYLES = {
     backgroundColor: "#F3F4F6",
     color: "#374151",
   },
+  overdue: {
+    backgroundColor: "#FEF2F2",
+    color: "#DC2626",
+  },
 };
 
 function formatDate(date) {
   if (!date) {
-    return "Sin fecha limite";
+    return "Sin fecha límite";
   }
-
-  const [year, month, day] = String(date).split("-");
-
-  if (!year || !month || !day) {
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return date;
+    
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    
+    const hours = String(d.getHours()).padStart(2, "0");
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    
+    return `${day}/${month}/${year} a las ${hours}:${minutes}`;
+  } catch (e) {
     return date;
   }
-
-  return `${day}/${month}/${year}`;
 }
 
 function getActivityAccent(type) {
@@ -127,7 +139,7 @@ export default function CourseDetailScreen({ route, navigation }) {
   const activitySummary = useMemo(() => {
     const assignments = activities.filter((activity) => activity.type === "assign");
     const forums = activities.filter((activity) => activity.type === "forum");
-    const pending = assignments.filter((activity) => activity.status === "pending");
+    const pending = assignments.filter((activity) => activity.status === "pending" || activity.status === "overdue");
 
     return {
       assignments: assignments.length,

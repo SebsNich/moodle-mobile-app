@@ -1,6 +1,6 @@
-# MoodleMobile - Aplicación Cliente
+# MoodleMobile - Aplicación Cliente (DAM)
 
-Aplicación móvil híbrida desarrollada con **Expo (React Native)** para conectarse a una instancia local/remota de Moodle. Proyecto para la asignatura de Desarrollo de Aplicaciones Móviles (DAM) - Universidad de Guayaquil.
+Aplicación móvil híbrida desarrollada con **Expo (React Native)** para conectarse a una instancia local de Moodle. Proyecto final integrador para la asignatura de **Desarrollo de Aplicaciones Móviles (DAM) - Universidad de Guayaquil**.
 
 ---
 
@@ -12,7 +12,7 @@ Si estás trabajando de forma local en tu computadora y con tu teléfono en la m
    ```bash
    npm install
    ```
-2. **Iniciar el servidor local:**
+2. **Iniciar el empaquetador de Expo:**
    ```bash
    npx expo start -c
    ```
@@ -20,45 +20,32 @@ Si estás trabajando de forma local en tu computadora y con tu teléfono en la m
 
 ---
 
-## 🌐 Cómo compartir la App y Moodle con tus compañeros (Ngrok)
+## 🌐 Conexión mediante Túnel de Ngrok Estático
 
-Como tu servidor de Moodle corre dentro de una máquina virtual (VM) en tu casa, cuando tus compañeros se conectan desde sus hogares necesitarán un túnel público seguro (Ngrok) para acceder. 
-
-Sigue estos pasos detallados cada vez que enciendas tu computadora o reinicies Ngrok (ya que en el plan gratuito la URL cambiará cada vez):
+Para permitir que tus compañeros o el docente prueben la aplicación desde sus hogares mediante internet, configuramos un **túnel estático permanente**. Al usar un dominio estático, **no necesitas cambiar las URLs en el código ni en la base de datos de Moodle cada vez que reinicias la PC**.
 
 ### Paso 1: Levantar el túnel en tu PC física (Host)
-Abre una terminal en tu computadora principal (no dentro de la máquina virtual) y ejecuta:
+Abre una terminal en tu computadora principal y ejecuta el túnel usando tu dominio estático reservado:
 ```bash
-ngrok http 8080
+ngrok http --domain=gesture-chatty-macaroni.ngrok-free.dev 80
 ```
-Copia la nueva dirección HTTPS generada por Ngrok (ejemplo: `https://gesture-chatty-macaroni.ngrok-free.dev`).
+*(Nota: Si tu servidor web Apache escucha en otro puerto, reemplaza `80` por el puerto correcto).*
 
-### Paso 2: Actualizar la URL de Moodle en la Máquina Virtual (SSH)
-Entra por SSH a tu máquina virtual y edita el archivo de configuración de Moodle:
-```bash
-sudo nano /var/www/mobileappdam.com/html/moodle/config.php
-```
-
-Busca la sección de la URL y modifícala con tu nueva dirección de Ngrok. Debe quedar de la siguiente manera:
+### Paso 2: Configuración del Servidor Moodle (VM)
+El archivo `config.php` de tu Moodle en la máquina virtual está configurado de forma permanente para escuchar en este dominio seguro:
 ```php
-// URL temporal de Ngrok (Actualízala cada vez que inicies Ngrok)
-$CFG->wwwroot = 'https://TU-NUEVA-URL-DE-NGROK.ngrok-free.dev/moodle';
-$CFG->sslproxy = true; // REQUERIDO: Le dice a Moodle que confíe en el túnel seguro de Ngrok
+$CFG->wwwroot = 'https://gesture-chatty-macaroni.ngrok-free.dev/moodle';
+$CFG->sslproxy = true;
 ```
-Guarda los cambios (`Ctrl + O`, `Enter`) y sal de nano (`Ctrl + X`).
 
-### Paso 3: Actualizar la URL en el código de la App Móvil
-En tu editor de código, abre el archivo:
-📂 `src/services/moodleApi.js`
-
-Busca la constante `MOODLE_URL` en las primeras líneas y actualízala con el nuevo túnel:
+### Paso 3: Configuración en el Código de la App
+El archivo de la API `src/services/moodleApi.js` apunta al túnel estático permanente:
 ```javascript
-const MOODLE_URL = "https://TU-NUEVA-URL-DE-NGROK.ngrok-free.dev/moodle";
+const WEBSERVICE_URL = "https://gesture-chatty-macaroni.ngrok-free.dev/moodle/webservice/rest/server.php";
 ```
-*(Nota: El archivo de la API extraerá la cabecera Host automáticamente, por lo que solo necesitas cambiar esta línea).*
 
 ### Paso 4: Iniciar Expo en Modo Túnel
-Para que tus compañeros puedan escanear el QR desde sus casas a través de internet, inicia el empaquetador de la app móvil en modo túnel:
+Para compartir la app con personas fuera de tu red local, inicia Expo con el flag de túnel:
 ```bash
 npx expo start --tunnel
 ```
@@ -68,16 +55,21 @@ Comparte el código QR o el enlace `exp://...` generado en la terminal con tus c
 
 ## 🔑 Autenticación con Google (OAuth 2.0)
 
-La aplicación tiene dos formas de validar usuarios:
+La aplicación tiene dos formas de validar usuarios en la pantalla de inicio de sesión:
 
-1. **Simulador de Correos (Para pruebas rápidas de roles):**
-   Puedes escribir manualmente cualquier correo registrado en tu base de datos de Moodle (como `john.quijijetov@ug.edu.ec` o cuentas de estudiantes) en la casilla de texto de la pantalla de login de la app. Al pulsar el botón, la app simulará que iniciaste sesión con esa cuenta de Google sin tener que loguearte realmente.
+1. **Simulador de Correos (Testeo rápido de Roles):**
+   * Escribe cualquier correo registrado en tu Moodle (ej. `tovarjohn627@gmail.com` para alumno, o `docente.sofware1@ug.edu.ec` para el docente) en la casilla de desarrollo de la pantalla de login.
+   * Al pulsar el botón, la app simulará el login saltándose el popup y asignándote el token de Moodle correspondiente.
 
-2. **Login de Google Real:**
-   Si dejas la casilla de texto vacía y presionas el botón, la app abrirá el navegador seguro de Google para que inicies sesión con tu cuenta institucional de la UG. Al autenticarte con éxito, Google entregará tu correo institucional y la app buscará ese correo exacto en tu base de datos de Moodle para iniciar la sesión.
+2. **Login de Google Real (OAuth 2.0):**
+   * Deja la casilla de correo vacía y presiona el botón **🔐 Iniciar sesión con Google**.
+   * Se abrirá el flujo oficial de inicio de sesión de Google mediante el Client ID del proyecto de Google Cloud: `189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com`.
+   * **⚠️ IMPORTANTE (Restricción de Google en Desarrollo):** Como la app está en fase de pruebas, **solo los correos registrados como "Usuarios de prueba"** en tu consola de Google Cloud (OAuth Consent Screen) podrán iniciar sesión con éxito. Asegúrate de añadir los correos de tu grupo de trabajo y del profesor en la consola de Google.
+
+---
 
 ## 🛠️ Estructura del Proyecto
 
-* `src/screens/` - Pantallas de la aplicación (Splash, Login, Cursos, Detalle de Cursos).
-* `src/services/moodleApi.js` - Integración real con la API REST y Web Services de Moodle.
-* `src/theme/` - Paleta de colores, tipografías y espaciados de la app.
+* [src/screens/](file:///home/jonta/StudioProjects/moodle-mobile-app/src/screens) - Pantallas de la aplicación (Login, Cursos, Detalle de Cursos, Foros, Tareas).
+* [src/services/moodleApi.js](file:///home/jonta/StudioProjects/moodle-mobile-app/src/services/moodleApi.js) - Integración real con la API REST y Web Services de Moodle.
+* [src/theme/](file:///home/jonta/StudioProjects/moodle-mobile-app/src/theme) - Configuración del sistema de diseño (Colores, Tipografías, Espaciados).

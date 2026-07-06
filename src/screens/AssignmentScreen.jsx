@@ -61,9 +61,21 @@ export default function AssignmentScreen({ route, navigation }) {
 
   const formatDate = (date) => {
     if (!date) return "Sin fecha límite";
-    const [year, month, day] = String(date).split("-");
-    if (!year || !month || !day) return date;
-    return `${day}/${month}/${year}`;
+    try {
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return date;
+      
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      
+      const hours = String(d.getHours()).padStart(2, "0");
+      const minutes = String(d.getMinutes()).padStart(2, "0");
+      
+      return `${day}/${month}/${year} a las ${hours}:${minutes}`;
+    } catch (e) {
+      return date;
+    }
   };
 
   return (

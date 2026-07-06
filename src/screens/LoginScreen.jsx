@@ -30,13 +30,11 @@ export default function LoginScreen({ navigation }) {
   // Caja de texto opcional para simular correos alternativos de manera rápida en desarrollo
   const [emailInput, setEmailInput] = useState("");
 
-  // Configuración de Google Sign-In
-  // STEVEN: Registra tu proyecto en Google Cloud Console y obtén tus Client IDs.
-  // Requisitos para probar en Expo Go: registrar el redirect URI de Expo.
+  // Configuración de Google Sign-In con tus Client IDs reales de Google Cloud
   const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: "TU-ANDROID-CLIENT-ID.apps.googleusercontent.com",
-    iosClientId: "TU-IOS-CLIENT-ID.apps.googleusercontent.com",
-    webClientId: "TU-WEB-CLIENT-ID.apps.googleusercontent.com", // Necesario para Expo Go / Web Redirect
+    androidClientId: "189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com",
+    iosClientId: "189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com",
+    webClientId: "189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com", // Necesario para Expo Go
   });
 
   // Escuchar cuando el flujo de Google responda con éxito

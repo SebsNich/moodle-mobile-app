@@ -8,6 +8,14 @@ let currentUserId = null;
 // Token de Administrador provisto para consultas y validaciones generales
 const ADMIN_TOKEN = "72e87e8fcee65873b7c03cd16fd76d9f";
 
+// Mapeo de tokens por usuario para desarrollo
+// NOTA: Reemplaza estos valores con los tokens reales generados en Moodle para cada usuario
+const USER_TOKENS = {
+  "john.quijijetov@ug.edu.ec": ADMIN_TOKEN,                    // Administrador
+  "tovarjohn627@gmail.com": "97d028602a3354c24826a862d3169da5", // Alumno (John Steven)
+  "docente.sofware1@ug.edu.ec": ADMIN_TOKEN,                   // Profesor (Francisco Alvarez) - Reemplazar con su token
+};
+
 // URL base del servidor Moodle
 // Para pruebas remotas con tus compañeros, reemplaza esta URL por tu dirección de Ngrok (ej: https://xxxx.ngrok-free.app)
 const MOODLE_URL = "https://gesture-chatty-macaroni.ngrok-free.dev/moodle";
@@ -42,8 +50,11 @@ export const loginWithGoogle = async (googleToken) => {
       const moodleUser = users[0];
       currentUserId = moodleUser.id;
 
+      // Obtener el token correspondiente al usuario logueado o usar el del admin
+      const activeToken = USER_TOKENS[moodleUser.email] || ADMIN_TOKEN;
+
       return {
-        token: ADMIN_TOKEN,
+        token: activeToken,
         user: {
           id: moodleUser.id,
           fullname: moodleUser.fullname,
@@ -73,28 +84,46 @@ export const getCourses = async (token) => {
       throw new Error(moodleCourses.message);
     }
 
-    return moodleCourses.map((course) => {
-      let imageUrl = "https://picsum.photos/seed/dam/400/200";
-      if (course.courseimage) {
-        imageUrl = course.courseimage;
-      } else if (course.overviewfiles && course.overviewfiles.length > 0) {
-        imageUrl = `${course.overviewfiles[0].fileurl}?token=${token}`;
-      }
+    // Para cada curso, intentar obtener los detalles extendidos (incluyendo los contactos/profesores)
+    const coursesWithTeachers = await Promise.all(
+      moodleCourses.map(async (course) => {
+        let teacherName = "Docente por confirmar";
+        try {
+          const detailUrl = `${WEBSERVICE_URL}?wstoken=${token}&wsfunction=core_course_get_courses_by_field&moodlewsrestformat=json&field=id&value=${course.id}`;
+          const detailResponse = await fetch(detailUrl, { headers: HEADERS });
+          const detailData = await detailResponse.json();
 
-      return {
-        id: course.id,
-        fullname: course.fullname,
-        shortname: course.shortname,
-        summary: course.summary
-          ? course.summary.replace(/<[^>]*>/g, "").trim()
-          : "Sin descripción",
-        teacher:
-          course.contacts && course.contacts.length > 0
-            ? course.contacts.map((c) => c.fullname).join(", ")
-            : "Docente por confirmar",
-        image: imageUrl,
-      };
-    });
+          if (detailData && detailData.courses && detailData.courses.length > 0) {
+            const detailedCourse = detailData.courses[0];
+            if (detailedCourse.contacts && detailedCourse.contacts.length > 0) {
+              teacherName = detailedCourse.contacts.map((c) => c.fullname).join(", ");
+            }
+          }
+        } catch (err) {
+          console.warn(`No se pudieron obtener contactos para el curso ${course.id}:`, err);
+        }
+
+        let imageUrl = "https://picsum.photos/seed/dam/400/200";
+        if (course.courseimage) {
+          imageUrl = course.courseimage;
+        } else if (course.overviewfiles && course.overviewfiles.length > 0) {
+          imageUrl = `${course.overviewfiles[0].fileurl}?token=${token}`;
+        }
+
+        return {
+          id: course.id,
+          fullname: course.fullname,
+          shortname: course.shortname,
+          summary: course.summary
+            ? course.summary.replace(/<[^>]*>/g, "").trim()
+            : "Sin descripción",
+          teacher: teacherName,
+          image: imageUrl,
+        };
+      })
+    );
+
+    return coursesWithTeachers;
   } catch (error) {
     console.error("Error en getCourses:", error);
     throw error;
@@ -140,14 +169,38 @@ export const getCourseActivities = async (token, courseId) => {
               let duedate = null;
               let description = mod.description || "";
 
+              // Intentar extraer fechas límite del arreglo 'dates' nativo de Moodle (común en foros y tareas)
+              if (mod.dates && mod.dates.length > 0) {
+                const dateInfo = mod.dates.find(d => 
+                  d.label.toLowerCase().includes("entrega") || 
+                  d.label.toLowerCase().includes("límite") || 
+                  d.label.toLowerCase().includes("limite") || 
+                  d.label.toLowerCase().includes("due")
+                ) || mod.dates[0];
+                
+                if (dateInfo && dateInfo.timestamp) {
+                  const d = new Date(dateInfo.timestamp * 1000);
+                  duedate = d.toISOString();
+                }
+              }
+
               if (mod.modname === "assign" && assignmentsMap[mod.id]) {
                 const assignInfo = assignmentsMap[mod.id];
-                if (assignInfo.duedate) {
+                if (!duedate && assignInfo.duedate) {
                   const d = new Date(assignInfo.duedate * 1000);
-                  duedate = d.toISOString().split("T")[0];
+                  duedate = d.toISOString();
                 }
-                if (assignInfo.intro) {
+                if (!description && assignInfo.intro) {
                   description = assignInfo.intro;
+                }
+              }
+
+              let status = mod.modname === "assign" ? "pending" : "open";
+              if (duedate) {
+                const now = new Date();
+                const dueTime = new Date(duedate);
+                if (now > dueTime) {
+                  status = "overdue";
                 }
               }
 
@@ -158,7 +211,7 @@ export const getCourseActivities = async (token, courseId) => {
                 name: mod.name,
                 type: mod.modname,
                 duedate: duedate,
-                status: mod.modname === "assign" ? "pending" : "open",
+                status: status,
                 description:
                   description.replace(/<[^>]*>/g, "").trim() ||
                   "Sin descripción disponible",
@@ -228,8 +281,10 @@ export const getForumDiscussions = async (token, forumId) => {
         activityId: forumId,
         subject: d.name,
         author: d.userfullname,
-        date: dateObj.toISOString().split("T")[0],
+        date: dateObj.toISOString(),
         replies: d.numreplies,
+        message: d.message ? d.message.replace(/<[^>]*>/g, "").trim() : "",
+        userpictureurl: d.userpictureurl || null,
       };
     });
   } catch (error) {
@@ -271,7 +326,8 @@ export const postForumReply = async (token, postId, message) => {
 
 export const getDiscussionPosts = async (token, discussionId) => {
   try {
-    const url = `${WEBSERVICE_URL}?wstoken=${token}&wsfunction=mod_forum_get_forum_discussion_posts&moodlewsrestformat=json&discussionid=${discussionId}`;
+    // Usamos mod_forum_get_discussion_posts (Moodle 3.7+) con compatibilidad de campos
+    const url = `${WEBSERVICE_URL}?wstoken=${token}&wsfunction=mod_forum_get_discussion_posts&moodlewsrestformat=json&discussionid=${discussionId}`;
     const response = await fetch(url, { headers: HEADERS });
     const result = await response.json();
 
@@ -285,9 +341,11 @@ export const getDiscussionPosts = async (token, discussionId) => {
       const dateObj = new Date(p.timecreated * 1000);
       return {
         id: p.id,
-        author: p.author?.fullname || "Usuario",
+        author: p.author?.fullname || p.userfullname || "Usuario",
         message: p.message ? p.message.replace(/<[^>]*>/g, "").trim() : "",
-        date: dateObj.toISOString().split("T")[0],
+        date: dateObj.toISOString(),
+        avatar: p.author?.urls?.profileimage || null,
+        hasparent: p.hasparent,
       };
     });
   } catch (error) {
