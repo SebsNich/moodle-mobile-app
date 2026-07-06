@@ -13,6 +13,7 @@ const ADMIN_TOKEN = "72e87e8fcee65873b7c03cd16fd76d9f";
 const USER_TOKENS = {
   "john.quijijetov@ug.edu.ec": ADMIN_TOKEN,                    // Administrador
   "tovarjohn627@gmail.com": "97d028602a3354c24826a862d3169da5", // Alumno (John Steven)
+  "sebasnichr17@gmail.com": "4988bc5d003316fe974089a21756d2f8", // Alumno (Sebastián)
   "docente.sofware1@ug.edu.ec": ADMIN_TOKEN,                   // Profesor (Francisco Alvarez) - Reemplazar con su token
 };
 
