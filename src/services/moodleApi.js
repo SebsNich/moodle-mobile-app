@@ -347,10 +347,70 @@ export const getDiscussionPosts = async (token, discussionId) => {
         date: dateObj.toISOString(),
         avatar: p.author?.urls?.profileimage || null,
         hasparent: p.hasparent,
+        canEdit: p.capabilities?.edit || false,
+        canDelete: p.capabilities?.delete || false,
       };
     });
   } catch (error) {
     console.error("Error en getDiscussionPosts:", error);
+    throw error;
+  }
+};
+
+export const deleteForumPost = async (token, postId) => {
+  try {
+    const params = new URLSearchParams();
+    params.append("wstoken", token);
+    params.append("wsfunction", "mod_forum_delete_post");
+    params.append("moodlewsrestformat", "json");
+    params.append("postid", postId);
+
+    const response = await fetch(WEBSERVICE_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        ...HEADERS,
+      },
+      body: params.toString(),
+    });
+
+    const result = await response.json();
+    if (result.exception) {
+      throw new Error(result.message);
+    }
+    return { status: "success", result };
+  } catch (error) {
+    console.error("Error en deleteForumPost:", error);
+    throw error;
+  }
+};
+
+export const editForumPost = async (token, postId, message) => {
+  try {
+    const params = new URLSearchParams();
+    params.append("wstoken", token);
+    params.append("wsfunction", "mod_forum_update_discussion_post");
+    params.append("moodlewsrestformat", "json");
+    params.append("postid", postId);
+    params.append("message", message);
+    params.append("messageformat", "1");
+
+    const response = await fetch(WEBSERVICE_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        ...HEADERS,
+      },
+      body: params.toString(),
+    });
+
+    const result = await response.json();
+    if (result.exception) {
+      throw new Error(result.message);
+    }
+    return { status: "success", result };
+  } catch (error) {
+    console.error("Error en editForumPost:", error);
     throw error;
   }
 };

@@ -21,6 +21,8 @@ import {
   getForumDiscussions,
   postForumReply,
   getDiscussionPosts,
+  deleteForumPost,
+  editForumPost,
 } from "../services/moodleApi";
 import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
@@ -43,6 +45,9 @@ export default function ForumScreen({ route, navigation }) {
   const [expandedDiscussionId, setExpandedDiscussionId] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [editingPostId, setEditingPostId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const formatDate = (date) => {
     if (!date) return "Sin fecha límite";
@@ -169,6 +174,62 @@ export default function ForumScreen({ route, navigation }) {
       );
     } finally {
       setSubmittingReply(false);
+    }
+  };
+
+  const handleDeletePost = (postId, discussionId) => {
+    Alert.alert(
+      "Eliminar Comentario",
+      "¿Estás seguro de que deseas eliminar este comentario?",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoadingPosts(true);
+              const res = await deleteForumPost(token, postId);
+              if (res.status === "success") {
+                Alert.alert("Éxito", "Comentario eliminado correctamente.");
+                // Recargar posts
+                const data = await getDiscussionPosts(token, discussionId);
+                setPosts(data || []);
+                loadDiscussions(true); // Actualizar cantidad de respuestas
+              }
+            } catch (err) {
+              console.error("Error al eliminar post:", err);
+              Alert.alert("Error", err.message || "No se pudo eliminar el comentario.");
+            } finally {
+              setLoadingPosts(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSaveEdit = async (postId, discussionId) => {
+    if (!editText.trim()) {
+      Alert.alert("Error", "El comentario no puede estar vacío.");
+      return;
+    }
+    try {
+      setSavingEdit(true);
+      const res = await editForumPost(token, postId, editText);
+      if (res.status === "success") {
+        Alert.alert("Éxito", "Comentario editado correctamente.");
+        setEditingPostId(null);
+        setEditText("");
+        // Recargar posts
+        const data = await getDiscussionPosts(token, discussionId);
+        setPosts(data || []);
+      }
+    } catch (err) {
+      console.error("Error al editar post:", err);
+      Alert.alert("Error", err.message || "No se pudo editar el comentario.");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -320,6 +381,8 @@ export default function ForumScreen({ route, navigation }) {
                 .map((post) => {
                   const isPostTeacher = isTeacher(post.author);
                   const postAvatarSource = getAvatarSource(post.avatar, token);
+                  const isEditingThis = editingPostId === post.id;
+
                   return (
                     <View key={post.id} style={[styles.postItemCard, isPostTeacher && styles.postItemTeacherCard]}>
                       <View style={styles.postItemHeader}>
@@ -333,7 +396,64 @@ export default function ForumScreen({ route, navigation }) {
                           <Text style={styles.postItemDate}>Publicado el {formatDate(post.date)}</Text>
                         </View>
                       </View>
-                      <Text style={styles.postItemMessage}>{post.message}</Text>
+
+                      {isEditingThis ? (
+                        <View style={styles.editForm}>
+                          <TextInput
+                            style={styles.editInput}
+                            value={editText}
+                            onChangeText={setEditText}
+                            multiline
+                            editable={!savingEdit}
+                          />
+                          <View style={styles.editActionsRow}>
+                            <TouchableOpacity 
+                              style={styles.editCancelBtn} 
+                              onPress={() => { setEditingPostId(null); setEditText(""); }}
+                              disabled={savingEdit}
+                            >
+                              <Text style={styles.editCancelText}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                              style={styles.editSaveBtn} 
+                              onPress={() => handleSaveEdit(post.id, item.id)}
+                              disabled={savingEdit}
+                            >
+                              {savingEdit ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <Text style={styles.editSaveText}>Guardar</Text>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : (
+                        <>
+                          <Text style={styles.postItemMessage}>{post.message}</Text>
+                          
+                          {/* Botones de Editar y Eliminar (Solo si Moodle otorga los permisos) */}
+                          {(post.canEdit || post.canDelete) && (
+                            <View style={styles.postActionsRow}>
+                              {post.canEdit && (
+                                <TouchableOpacity 
+                                  style={styles.postActionBtn} 
+                                  onPress={() => { setEditingPostId(post.id); setEditText(post.message); }}
+                                >
+                                  <Text style={styles.postActionEditText}>Editar</Text>
+                                </TouchableOpacity>
+                              )}
+                              {post.canDelete && (
+                                <TouchableOpacity 
+                                  style={styles.postActionBtn} 
+                                  onPress={() => handleDeletePost(post.id, item.id)}
+                                >
+                                  <Text style={styles.postActionDeleteText}>Eliminar</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          )}
+                        </>
+                      )}
                     </View>
                   );
                 })
@@ -745,5 +865,68 @@ const styles = StyleSheet.create({
   dueDateBadgeOverdue: {
     backgroundColor: "#FEF2F2",
     color: "#DC2626",
+  },
+  editForm: {
+    marginTop: spacing.xs,
+  },
+  editInput: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: spacing.sm,
+    minHeight: 60,
+    textAlignVertical: "top",
+    fontSize: 14,
+    color: colors.textPrimary,
+    marginBottom: 8,
+  },
+  editActionsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  editCancelBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: "#F1F5F9",
+  },
+  editCancelText: {
+    color: "#475569",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  editSaveBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: colors.primary,
+  },
+  editSaveText: {
+    color: colors.textWhite,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  postActionsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+    paddingTop: 6,
+  },
+  postActionBtn: {
+    paddingVertical: 2,
+  },
+  postActionEditText: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  postActionDeleteText: {
+    fontSize: 12,
+    color: colors.error,
+    fontWeight: "700",
   },
 });
