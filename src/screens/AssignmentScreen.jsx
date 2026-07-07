@@ -1,7 +1,7 @@
 // ASSIGNMENT SCREEN - Natalia Cepeda & Steven Integration
 // Pantalla para visualizar los detalles de una tarea y realizar envíos de texto.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,8 +15,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
+  Linking,
 } from "react-native";
-import { submitAssignment } from "../services/moodleApi";
+import * as DocumentPicker from "expo-document-picker";
+import {
+  submitAssignment,
+  getSubmissionStatus,
+  uploadFileToMoodle,
+  submitAssignmentForGrading,
+} from "../services/moodleApi";
 import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
 import { spacing } from "../theme/spacing";
@@ -31,18 +38,113 @@ export default function AssignmentScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  // Estado de la entrega ya existente en Moodle (si la hay)
+  const [checkingStatus, setCheckingStatus] = useState(true);
+  const [submissionStatus, setSubmissionStatus] = useState("new"); // "new" | "draft" | "submitted"
+  const [previousFiles, setPreviousFiles] = useState([]); // archivos que ya estaban en Moodle
+
+  // Archivos nuevos elegidos en esta sesión, pendientes de subir
+  const [attachments, setAttachments] = useState([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+
+  // Al entrar a la pantalla, se consulta si el estudiante ya tiene algo entregado,
+  // para no pisar un borrador ni hacer creer que nunca ha enviado nada.
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkExistingSubmission = async () => {
+      if (!actualAssignId || !token) {
+        setCheckingStatus(false);
+        return;
+      }
+      try {
+        const status = await getSubmissionStatus(token, actualAssignId);
+        if (!isMounted) return;
+
+        setSubmissionStatus(status.status);
+        if (status.hasSubmission) {
+          setText(status.text || "");
+          setPreviousFiles(status.files || []);
+          if (status.status === "submitted") {
+            setSubmitted(true);
+          }
+        }
+      } catch (error) {
+        // No es bloqueante: si falla la consulta, el estudiante puede entregar igual desde cero
+        console.warn("No se pudo verificar entregas previas:", error.message);
+      } finally {
+        if (isMounted) setCheckingStatus(false);
+      }
+    };
+
+    checkExistingSubmission();
+    return () => {
+      isMounted = false;
+    };
+  }, [actualAssignId, token]);
+
+  // Abre el selector de archivos del dispositivo; permite elegir varios a la vez.
+  const handlePickFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+
+      const picked = result.assets || [];
+      setAttachments((prev) => [...prev, ...picked]);
+    } catch (error) {
+      console.error("Error al seleccionar archivo:", error);
+      Alert.alert("Error", "No se pudo abrir el selector de archivos.");
+    }
+  };
+
+  const handleRemoveAttachment = (index) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes && bytes !== 0) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const handleSubmit = async () => {
-    if (!text.trim()) {
-      Alert.alert("Campo vacío", "Por favor escribe tu respuesta antes de enviar.");
+    if (!text.trim() && attachments.length === 0) {
+      Alert.alert(
+        "Entrega vacía",
+        "Escribe una respuesta o adjunta al menos un archivo antes de enviar."
+      );
       return;
     }
 
     try {
       setLoading(true);
-      const response = await submitAssignment(token, actualAssignId, text);
+
+      // 1. Si hay archivos nuevos, primero se suben a Moodle (todos a la misma área de borrador)
+      let fileItemId = null;
+      if (attachments.length > 0) {
+        setUploadingFiles(true);
+        for (const file of attachments) {
+          fileItemId = await uploadFileToMoodle(token, file, fileItemId);
+        }
+        setUploadingFiles(false);
+      }
+
+      // 2. Se guarda la entrega (texto + referencia a los archivos subidos)
+      const response = await submitAssignment(token, actualAssignId, text, fileItemId);
 
       if (response.status === "success") {
+        // 3. Si la tarea requiere confirmación explícita para calificación, se intenta.
+        // Si no aplica, Moodle devuelve una excepción que se ignora silenciosamente.
+        await submitAssignmentForGrading(token, actualAssignId);
+
         setSubmitted(true);
+        setSubmissionStatus("submitted");
+        setAttachments([]);
         Alert.alert(
           "Éxito",
           "Tu tarea ha sido enviada correctamente al servidor Moodle.",
@@ -56,6 +158,7 @@ export default function AssignmentScreen({ route, navigation }) {
       Alert.alert("Error de Envío", error.message || "Ocurrió un error al enviar la tarea.");
     } finally {
       setLoading(false);
+      setUploadingFiles(false);
     }
   };
 
@@ -109,6 +212,48 @@ export default function AssignmentScreen({ route, navigation }) {
             </Text>
           </View>
 
+          {/* Estado de la entrega actual en Moodle */}
+          {checkingStatus ? (
+            <View style={styles.statusBanner}>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              <Text style={styles.statusBannerText}>Verificando entregas previas...</Text>
+            </View>
+          ) : submissionStatus === "submitted" ? (
+            <View style={[styles.statusBanner, styles.statusBannerSuccess]}>
+              <Text style={styles.statusBannerText}>
+                ✓ Ya entregaste esta tarea. Puedes editarla y volver a enviarla.
+              </Text>
+            </View>
+          ) : submissionStatus === "draft" ? (
+            <View style={[styles.statusBanner, styles.statusBannerWarning]}>
+              <Text style={styles.statusBannerText}>
+                📝 Tienes un borrador guardado. Se cargó automáticamente abajo.
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Archivos que ya estaban entregados en Moodle */}
+          {previousFiles.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Archivos ya entregados</Text>
+              <View style={styles.descriptionBox}>
+                {previousFiles.map((f, index) => (
+                  <TouchableOpacity
+                    key={`${f.filename}-${index}`}
+                    style={styles.fileRow}
+                    onPress={() => Linking.openURL(f.fileurl)}
+                  >
+                    <Text style={styles.fileRowIcon}>📎</Text>
+                    <Text style={styles.fileRowName} numberOfLines={1}>
+                      {f.filename}
+                    </Text>
+                    <Text style={styles.fileRowSize}>{formatFileSize(f.filesize)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
           {/* Instrucciones de la Tarea */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Instrucciones</Text>
@@ -130,24 +275,64 @@ export default function AssignmentScreen({ route, navigation }) {
               numberOfLines={8}
               value={text}
               onChangeText={setText}
-              editable={!loading && !submitted}
+              editable={!loading}
             />
+          </View>
+
+          {/* Adjuntar Archivos */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Archivos adjuntos</Text>
+
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={handlePickFile}
+              disabled={loading}
+            >
+              <Text style={styles.attachButtonText}>📎 Adjuntar archivo</Text>
+            </TouchableOpacity>
+
+            {attachments.length > 0 && (
+              <View style={styles.descriptionBox}>
+                {attachments.map((file, index) => (
+                  <View key={`${file.name}-${index}`} style={styles.fileRow}>
+                    <Text style={styles.fileRowIcon}>📄</Text>
+                    <Text style={styles.fileRowName} numberOfLines={1}>
+                      {file.name}
+                    </Text>
+                    <Text style={styles.fileRowSize}>{formatFileSize(file.size)}</Text>
+                    <TouchableOpacity
+                      onPress={() => handleRemoveAttachment(index)}
+                      disabled={loading}
+                      style={styles.removeFileButton}
+                    >
+                      <Text style={styles.removeFileButtonText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
           {/* Botón de Enviar */}
           <TouchableOpacity
             style={[
               styles.submitButton,
-              (loading || submitted || !text.trim()) && styles.disabledButton,
+              (loading || (!text.trim() && attachments.length === 0)) &&
+                styles.disabledButton,
             ]}
             onPress={handleSubmit}
-            disabled={loading || submitted || !text.trim()}
+            disabled={loading || (!text.trim() && attachments.length === 0)}
           >
             {loading ? (
-              <ActivityIndicator color={colors.textWhite} />
+              <View style={styles.loadingRow}>
+                <ActivityIndicator color={colors.textWhite} />
+                <Text style={styles.submitButtonText}>
+                  {uploadingFiles ? " Subiendo archivos..." : " Enviando..."}
+                </Text>
+              </View>
             ) : (
               <Text style={styles.submitButtonText}>
-                {submitted ? "✓ Tarea Enviada" : "Enviar Tarea"}
+                {submitted ? "Reenviar Tarea" : "Enviar Tarea"}
               </Text>
             )}
           </TouchableOpacity>
@@ -225,6 +410,30 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
   },
+  statusBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.white,
+    padding: spacing.sm,
+    borderRadius: spacing.borderRadius.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  statusBannerSuccess: {
+    backgroundColor: "#e6f4ea",
+    borderColor: colors.success,
+  },
+  statusBannerWarning: {
+    backgroundColor: "#fef7e0",
+    borderColor: colors.warning,
+  },
+  statusBannerText: {
+    ...typography.body2,
+    color: colors.textPrimary,
+    flexShrink: 1,
+  },
   section: {
     marginBottom: spacing.md,
   },
@@ -246,6 +455,51 @@ const styles = StyleSheet.create({
     ...typography.body1,
     color: colors.textPrimary,
     lineHeight: 22,
+  },
+  attachButton: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.primaryLight,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.borderRadius.md,
+    marginBottom: spacing.sm,
+  },
+  attachButtonText: {
+    color: colors.textWhite,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  fileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
+  },
+  fileRowIcon: {
+    fontSize: 16,
+    marginRight: spacing.xs,
+  },
+  fileRowName: {
+    ...typography.body2,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  fileRowSize: {
+    ...typography.caption,
+    color: colors.textLight,
+    marginLeft: spacing.xs,
+  },
+  removeFileButton: {
+    marginLeft: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  removeFileButtonText: {
+    color: colors.error,
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   textInput: {
     backgroundColor: colors.white,
