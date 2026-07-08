@@ -223,6 +223,26 @@ export const getCourseActivities = async (token, courseId) => {
         }
       });
     }
+    
+    // Consultar el estado real de entrega para todas las tareas en paralelo
+    try {
+      const statusPromises = activities.map(async (act) => {
+        if (act.type === "assign") {
+          try {
+            const submission = await getSubmissionStatus(token, act.instanceId);
+            if (submission && submission.hasSubmission && submission.status === "submitted") {
+              act.status = "submitted";
+            }
+          } catch (e) {
+            console.warn(`No se pudo obtener el estado de la tarea ${act.id}:`, e);
+          }
+        }
+      });
+      await Promise.all(statusPromises);
+    } catch (e) {
+      console.warn("Error al actualizar estados de entrega de tareas:", e);
+    }
+
     return activities;
   } catch (error) {
     console.error("Error en getCourseActivities:", error);
@@ -272,6 +292,15 @@ export const getSubmissionStatus = async (token, assignmentId) => {
       }
     });
 
+    if (!text.trim() && files.length === 0) {
+      return {
+        hasSubmission: false,
+        status: "new",
+        text: "",
+        files: [],
+      };
+    }
+ 
     return {
       hasSubmission: true,
       status: submission.status, // "draft" o "submitted"
@@ -338,10 +367,8 @@ export const submitAssignment = async (token, assignmentId, text, fileItemId = n
     params.append("plugindata[onlinetext_editor][format]", "1");
     params.append("plugindata[onlinetext_editor][itemid]", "0");
 
-    // Solo se envía si hubo archivos subidos previamente a uploadFileToMoodle
-    if (fileItemId) {
-      params.append("plugindata[files_filemanager]", fileItemId);
-    }
+    // Si no hay fileItemId, enviamos "0" para limpiar/borrar los archivos en la entrega
+    params.append("plugindata[files_filemanager]", fileItemId || "0");
 
     const response = await fetch(WEBSERVICE_URL, {
       method: "POST",
@@ -355,6 +382,15 @@ export const submitAssignment = async (token, assignmentId, text, fileItemId = n
     const result = await response.json();
     if (result.exception) {
       throw new Error(result.message);
+    }
+    // Si result es un arreglo y contiene advertencias de Moodle, el guardado falló
+    if (Array.isArray(result) && result.length > 0) {
+      const warning = result[0];
+      return {
+        status: "error",
+        message: warning.item || warning.message || "No se pudo guardar la entrega.",
+        warningcode: warning.warningcode,
+      };
     }
     return { status: "success", result };
   } catch (error) {

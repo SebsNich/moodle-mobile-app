@@ -133,8 +133,16 @@ export default function CourseDetailScreen({ route, navigation }) {
   );
 
   useEffect(() => {
+    // Carga inicial
     loadCourseDetail();
-  }, [loadCourseDetail]);
+
+    // Recargar al enfocar la pantalla (por ejemplo, al volver tras entregar una tarea)
+    const unsubscribe = navigation?.addListener("focus", () => {
+      loadCourseDetail(true);
+    });
+
+    return unsubscribe;
+  }, [navigation, loadCourseDetail]);
 
   const activitySummary = useMemo(() => {
     const assignments = activities.filter((activity) => activity.type === "assign");
