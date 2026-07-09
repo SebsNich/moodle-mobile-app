@@ -15,6 +15,7 @@ const USER_TOKENS = {
   "tovarjohn627@gmail.com": "97d028602a3354c24826a862d3169da5", // Alumno (John Steven)
   "sebasnichr17@gmail.com": "4988bc5d003316fe974089a21756d2f8", // Alumno (Sebastián)
   "natacepedajar@gmail.com": "dd5526964eb507bdf64c5c161878c109", // Alumno (Natalia)
+  "berrones.kleber@gmail.com": "df1446a0f270e5398dda212555559970", // Alumno (Kleber Arteaga)
   "docente.sofware1@ug.edu.ec": ADMIN_TOKEN,                   // Profesor (Francisco Alvarez) - Reemplazar con su token
 };
 
