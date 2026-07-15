@@ -2,7 +2,7 @@
   "expo": {
     "name": "moodle-mobile-app2",
     "slug": "moodle-mobile-app2",
-    "scheme": "moodlemobile",
+    "scheme": "com.jonta9029.moodlemobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,9 +14,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jonta9029.moodlemobile"
     },
     "android": {
+      "package": "com.jonta9029.moodlemobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

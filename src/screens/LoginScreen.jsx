@@ -1,7 +1,8 @@
 // LOGIN SCREEN - Sebastian & Steven Integration
 // Pantalla de autenticación real con Google OAuth 2.0 y validación de correo en Moodle
+// Configurado con Google Sign-In Nativo para cargar las cuentas del celular directamente.
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -14,59 +15,21 @@ import {
   StatusBar,
   SafeAreaView,
 } from "react-native";
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
+import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
 import { loginWithGoogle } from "../services/moodleApi";
 import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
 import { spacing } from "../theme/spacing";
 
-// Permite completar la redirección del navegador seguro
-WebBrowser.maybeCompleteAuthSession();
+// Configuración inicial de Google Sign-in Nativo
+GoogleSignin.configure({
+  webClientId: "189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com", // Tu ID de Cliente Web de Google Cloud Console
+  offlineAccess: false,
+});
 
 export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
-  
-  // Caja de texto opcional para simular correos alternativos de manera rápida en desarrollo
   const [emailInput, setEmailInput] = useState("");
-
-  // Configuración de Google Sign-In con tus Client IDs reales de Google Cloud
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: "189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com",
-    iosClientId: "189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com",
-    webClientId: "189645847735-l0a3n6eudpgvbokl5bmbm5j5tbbprt0i.apps.googleusercontent.com", // Necesario para Expo Go
-  });
-
-  // Escuchar cuando el flujo de Google responda con éxito
-  useEffect(() => {
-    if (response?.type === "success") {
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        fetchGoogleUserProfile(authentication.accessToken);
-      }
-    }
-  }, [response]);
-
-  // Obtener el perfil del usuario de Google
-  const fetchGoogleUserProfile = async (accessToken) => {
-    try {
-      setLoading(true);
-      const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const profile = await res.json();
-
-      if (profile?.email) {
-        await performMoodleLogin(profile.email);
-      } else {
-        throw new Error("No se pudo obtener el correo desde tu cuenta de Google.");
-      }
-    } catch (error) {
-      console.error("Error al obtener datos de Google:", error);
-      Alert.alert("Error de Google", "No se pudo recuperar tu información de Google.");
-      setLoading(false);
-    }
-  };
 
   // Validar el correo en Moodle e iniciar sesión
   const performMoodleLogin = async (email) => {
@@ -95,47 +58,60 @@ export default function LoginScreen({ navigation }) {
   };
 
   const handleGoogleLogin = async () => {
-    // Si el usuario escribe manualmente un correo en el campo de prueba,
-    // simulamos el login directo con ese correo para facilitar el testeo de roles.
-    if (emailInput.trim()) {
-      await performMoodleLogin(emailInput.trim());
-      return;
-    }
-
-    // Flujo real de Google OAuth 2.0
-    if (request) {
+    try {
+      setLoading(true);
+      
+      // Comprobar la disponibilidad de Google Play Services en el teléfono
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      
+      // Cerrar sesión previa de Google para asegurar que siempre muestre el selector de cuentas
       try {
-        setLoading(true);
-        const result = await promptAsync();
-        if (result?.type !== "success") {
-          setLoading(false); // Si canceló o falló, apagamos la carga
-        }
-      } catch (err) {
-        console.error("Error de promptAsync:", err);
-        setLoading(false);
+        await GoogleSignin.signOut();
+      } catch (e) {
+        console.log("No había sesión activa de Google para cerrar");
       }
-    } else {
-      // Modo demostrativo por defecto
-      Alert.alert(
-        "Simulación de Login",
-        "Como estás en desarrollo local sin Client IDs configurados, simularemos el login con tu correo de administrador.\n\n(También puedes escribir cualquier correo en la casilla de arriba para probar).",
-        [
-          {
-            text: "Cancelar",
-            onPress: () => setLoading(false),
-            style: "cancel",
-          },
-          {
-            text: "Iniciar como Admin",
-            onPress: () => performMoodleLogin("john.quijijetov@ug.edu.ec"),
-          },
-        ]
-      );
+      
+      // Lanzar el selector de cuentas nativo de Google Play Services
+      const userInfo = await GoogleSignin.signIn();
+      console.log("Google Sign-In Exitoso:", userInfo);
+
+      // Extraer el correo de la cuenta de Google seleccionada
+      const email = userInfo.data?.user?.email || userInfo.user?.email;
+      
+      if (email) {
+        await performMoodleLogin(email);
+      } else {
+        throw new Error("No se pudo obtener el correo de tu cuenta de Google.");
+      }
+    } catch (error) {
+      console.error("Error en Google Sign-In Nativo:", error);
+      
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        // El usuario canceló la selección de cuenta
+        console.log("El usuario canceló el inicio de sesión.");
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        // Operación ya en curso
+        console.log("Inicio de sesión en curso.");
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert(
+          "Servicios no Disponibles",
+          "Google Play Services no está disponible en este dispositivo."
+        );
+      } else {
+        Alert.alert(
+          "Error de Inicio de Sesión",
+          error.message || "No se pudo recuperar la información de Google."
+        );
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>MoodleMobile</Text>
@@ -144,10 +120,10 @@ export default function LoginScreen({ navigation }) {
         </Text>
       </View>
 
-      {/* Caja de Login y Pruebas */}
+      {/* Caja de Login */}
       <View style={styles.loginContainer}>
-        {/* Campo de simulador de correos */}
-        <Text style={styles.testLabel}>Entorno de Desarrollo:</Text>
+        {/* Campo de simulador de correos rápido */}
+        <Text style={styles.testLabel}>Entorno de Desarrollo (Simulador):</Text>
         <TextInput
           style={styles.emailInput}
           placeholder="Escribe un correo para simular login..."
@@ -159,6 +135,18 @@ export default function LoginScreen({ navigation }) {
           editable={!loading}
         />
 
+        {emailInput.trim() ? (
+          <TouchableOpacity
+            style={[styles.simulatedButton, loading && styles.disabledButton]}
+            onPress={() => performMoodleLogin(emailInput.trim())}
+            disabled={loading}
+          >
+            <Text style={styles.simulatedButtonText}>
+              Ingresar con correo
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         <TouchableOpacity
           style={[styles.googleButton, loading && styles.disabledButton]}
           onPress={handleGoogleLogin}
@@ -168,7 +156,7 @@ export default function LoginScreen({ navigation }) {
             <ActivityIndicator color={colors.textWhite} />
           ) : (
             <Text style={styles.googleButtonText}>
-              🔐 Iniciar sesión con Google
+              Iniciar sesion con google
             </Text>
           )}
         </TouchableOpacity>
@@ -238,6 +226,20 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.md,
     textAlign: "center",
+  },
+  simulatedButton: {
+    backgroundColor: "#34A853",
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: spacing.borderRadius.md,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: spacing.md,
+    ...spacing.shadow.medium,
+  },
+  simulatedButtonText: {
+    ...typography.button,
+    color: colors.textWhite,
   },
   googleButton: {
     backgroundColor: colors.primary,

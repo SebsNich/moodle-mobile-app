@@ -15,6 +15,7 @@ import {
   Platform,
   StatusBar,
 } from "react-native";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { getCourses } from "../services/moodleApi";
 import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
@@ -29,6 +30,20 @@ export default function CoursesScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+
+  const handleLogout = async () => {
+    try {
+      try {
+        await GoogleSignin.signOut();
+      } catch (googleError) {
+        console.warn("Error al cerrar sesión de Google:", googleError);
+      }
+      // Volver a la pantalla de login
+      navigation.replace("Login");
+    } catch (err) {
+      console.error("Error al cerrar sesión:", err);
+    }
+  };
 
   const loadCourses = useCallback(async () => {
     try {
@@ -118,9 +133,14 @@ export default function CoursesScreen({ navigation, route }) {
             <Text style={styles.headerSubtitle}>Hola, {user.fullname}</Text>
           ) : null}
         </View>
-        {user?.profileimage ? (
-          <Image source={{ uri: user.profileimage }} style={styles.avatar} />
-        ) : null}
+        <View style={styles.headerRight}>
+          {user?.profileimage ? (
+            <Image source={{ uri: user.profileimage }} style={styles.avatar} />
+          ) : null}
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>Cerrar sesión</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -197,10 +217,25 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
   },
+  headerRight: {
+    alignItems: "center",
+  },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: spacing.borderRadius.full,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  logoutButton: {
+    marginTop: 4,
+    backgroundColor: colors.error,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+  },
+  logoutButtonText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: colors.textWhite,
   },
   listContent: {
     padding: spacing.md,

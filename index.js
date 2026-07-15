@@ -1,4 +1,8 @@
 import { registerRootComponent } from 'expo';
+import * as WebBrowser from 'expo-web-browser';
+
+// Maneja la redirección del flujo de OAuth en la versión web cerrando el popup
+WebBrowser.maybeCompleteAuthSession();
 
 import App from './app';
 
